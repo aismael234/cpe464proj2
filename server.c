@@ -24,15 +24,22 @@
 #include "networks.h"
 #include "pdu.h"
 #include "pollLib.h"
+#include "flags.h"
 
 #define MAXBUF 65536
 #define DEBUG_FLAG 1
 
-void recvFromClient(int clientSocket);
+void recvFromClient(int clientSocket, uint8_t* dataBuf);
 int checkArgs(int argc, char *argv[]);
 void serverControl(int mainSocket);
 void addNewSocket(int mainSocket);
 void processClient(int clientSocket);
+void sendToClient(int socketNum, uint8_t* sendBuf, int sendLen);
+
+int handleConnect(uint8_t* dataBuffer);
+
+// remove
+int readFromStdin(uint8_t * buffer);
 
 int main(int argc, char *argv[])
 {
@@ -65,8 +72,9 @@ void serverControl(int mainSocket) {
 		printf("socket: %d\n", socket);
 		if(socket == mainSocket)
 			addNewSocket(socket);
-		else
+		else {
 			processClient(socket);
+		}
 	}
 }
 
@@ -79,29 +87,109 @@ void addNewSocket(int mainSocket) {
 
 void processClient(int clientSocket) {
 
-	recvFromClient(clientSocket);
+	uint8_t dataBuffer[MAXBUF];
+	recvFromClient(clientSocket, dataBuffer);
+	//printf("Message received, length: %d Data: %s\n", messageLen, dataBuffer);
+		if(dataBuffer[0] == CONNECT) {
+			int sendLen = handleConnect(dataBuffer);
+			sendToClient(clientSocket, dataBuffer, sendLen);
+		}
+
 }
 
-void recvFromClient(int clientSocket)
-{
-	uint8_t dataBuffer[MAXBUF];
+void recvFromClient(int clientSocket, uint8_t* dataBuf) {
+	
 	int messageLen = 0;
 	
-	//now get the data from the client_socket
-	if ((messageLen = recvPDU(clientSocket, dataBuffer, MAXBUF)) < 0)
+	// now get the data from the client_socket
+	if ((messageLen = recvPDU(clientSocket, dataBuf, MAXBUF)) < 0)
 	{
 		perror("recv call");
 		exit(-1);
 	}
 
-	if (messageLen > 0)
-	{
-		printf("Message received, length: %d Data: %s\n", messageLen, dataBuffer);
-	}
-	else
+	if (messageLen <= 0)
 	{
 		printf("Connection closed by other side\n");
 	}
+}
+
+void sendToClient(int socketNum, uint8_t* sendBuf, int sendLen)
+{
+	int sent = 0;            //actual amount of data sent/* get the data and send it   */
+	
+	sent = sendPDU(socketNum, sendBuf, sendLen);
+	if (sent < 0)
+	{
+		perror("send call");
+		exit(-1);
+	}
+
+}
+
+// if new client sends connection PDU. returns PDU length
+int handleConnect(uint8_t* dataBuffer) {
+
+	uint8_t clientHandle[MAXBUF];
+	int handleLength = dataBuffer[1];
+	// get handle name
+	memcpy(clientHandle, &dataBuffer[2], handleLength);
+
+	// check handle constraints
+	//
+
+	// check handle socket data structure for handle
+	char *check = "aladdin";
+	// handle not found/already found
+	if(!strncmp((char*)clientHandle, check, handleLength)) {
+
+		memset(dataBuffer, 0, MAXBUF);
+		dataBuffer[0] = CONNECT_DENY;
+		dataBuffer[1] = '\0';
+
+		char errorMsg[MAXBUF];
+		printf("Handle is Not Valid.\n");
+		sprintf(errorMsg, "Handle already in use: %s", clientHandle);
+		memcpy((char*)&dataBuffer[1], errorMsg, strlen(errorMsg) + 1);
+		printf("error: %s\nlength: %zu\n", errorMsg, strlen(errorMsg) + 1);
+		// flag + error message length + null terminator
+		return 1 + strlen(errorMsg) + 1;
+	}
+	// handle is valid
+	else {
+		printf("Handle is valid\n");
+		memset(dataBuffer, 0, MAXBUF);
+		dataBuffer[0] = CONNECT_CONFIRM;
+		return 1;
+	}
+
+}
+
+
+// remove
+int readFromStdin(uint8_t * buffer)
+{
+	char aChar = 0;
+	int inputLen = 0; 
+	
+	// Important you don't input more characters than you have space
+	buffer[0] = '\0';
+	printf("Enter data: ");
+	while (inputLen < (MAXBUF - 1) && aChar != '\n')
+	{
+		aChar = getchar();
+		if (aChar != '\n')
+		{
+			buffer[inputLen] = aChar;
+			inputLen++;
+		}
+	}
+	
+	// Null terminate the string
+	buffer[inputLen] = '\0';
+	inputLen++;
+	
+	return inputLen;
 }
 
 int checkArgs(int argc, char *argv[])

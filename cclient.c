@@ -23,30 +23,72 @@
 
 #include "networks.h"
 #include "pdu.h"
+#include "pollLib.h"
+#include "flags.h"
 
 #define MAXBUF 1024
 #define DEBUG_FLAG 1
 
-void sendToServer(int socketNum);
 int readFromStdin(uint8_t * buffer);
 void checkArgs(int argc, char * argv[]);
 
+void clientControl(int clientSocket);
+
+void processMsgFromServer(int socket);
+void sendToServer(int socketNum);
+void recvFromServer(int socket);
+void awaitServerConnect(int socket);
+
+int buildConnect(uint8_t* sendBuf);
+int buildUnicast(uint8_t* sendBuf, int sendLen);
+
+uint8_t findSendFlag(uint8_t* sendBuf);
+
+char clientHandle[MAXBUF];
+uint8_t clientLength;
+
 int main(int argc, char * argv[])
-{
-	int socketNum = 0;         //socket descriptor
-	
+{ 
+	//socket descriptor
+	int clientSocket = 0;        
 	checkArgs(argc, argv);
 
+	// client handle and length
+	strcpy(clientHandle, argv[1]);
+	clientLength = strlen(clientHandle);
+
 	/* set up the TCP Client socket  */
-	socketNum = tcpClientSetup(argv[1], argv[2], DEBUG_FLAG);
-	
-	while(1) {
-	sendToServer(socketNum);
-	}
-	
-	close(socketNum);
-	
+	clientSocket = tcpClientSetup(argv[2], argv[3], DEBUG_FLAG);
+
+	// send connection initialization PDU
+	uint8_t sendBuf[MAXBUF];
+	int sendLen = buildConnect(sendBuf);
+	sendPDU(clientSocket, sendBuf, sendLen);
+	// wait for server connect reply
+	awaitServerConnect(clientSocket);
+
+	clientControl(clientSocket);
+
+	close(clientSocket);
 	return 0;
+}
+
+void clientControl(int clientSocket) {
+
+	setupPollSet();
+	addToPollSet(STDIN_FILENO);
+	addToPollSet(clientSocket);
+
+	int fd;
+	while(1) {
+		printf("$:");
+		fflush(stdout);
+		fd = pollCall(-1);
+		if(fd == STDIN_FILENO)
+			sendToServer(clientSocket);
+		else if(fd == clientSocket)
+			processMsgFromServer(clientSocket);
+	}
 }
 
 void sendToServer(int socketNum)
@@ -56,8 +98,23 @@ void sendToServer(int socketNum)
 	int sent = 0;            //actual amount of data sent/* get the data and send it   */
 	
 	sendLen = readFromStdin(sendBuf);
-	printf("read: %s string len: %d (including null)\n", sendBuf, sendLen);
-	
+
+	uint8_t flag = findSendFlag(sendBuf);
+	if(flag == 0) {
+		printf("Valid flag not detected. Please start message with a valid flag (%%M,%%C,%%B,%%L).\n");
+		return;
+	}
+
+	if(flag == UNICAST) {
+		sendLen = buildUnicast(sendBuf, sendLen);
+		if(sendLen < 0) {
+			printf("Usage: %%M dest-handle message\n");
+		}
+	}
+
+	//printf("read: %s string len: %d (including null). flag: %d\n", sendBuf, sendLen, flag);
+	//printf("PDU sent: %s, length: %zu\n", sendBuf, strlen((char*)sendBuf));
+
 	sent = sendPDU(socketNum, sendBuf, sendLen);
 	if (sent < 0)
 	{
@@ -75,7 +132,7 @@ int readFromStdin(uint8_t * buffer)
 	
 	// Important you don't input more characters than you have space
 	buffer[0] = '\0';
-	printf("Enter data: ");
+
 	while (inputLen < (MAXBUF - 1) && aChar != '\n')
 	{
 		aChar = getchar();
@@ -96,9 +153,132 @@ int readFromStdin(uint8_t * buffer)
 void checkArgs(int argc, char * argv[])
 {
 	/* check command line arguments  */
-	if (argc != 3)
+	if (argc != 4)
 	{
-		printf("usage: %s host-name port-number \n", argv[0]);
+		printf("usage: %s handle host-name port-number \n", argv[0]);
 		exit(1);
 	}
+}
+
+void processMsgFromServer(int socket) {
+	recvFromServer(socket);
+}
+
+void recvFromServer(int socket) {
+	uint8_t dataBuffer[MAXBUF];
+	int messageLen = 0;
+	
+	//now get the data from the client_socket
+	if ((messageLen = recvPDU(socket, dataBuffer, MAXBUF)) < 0)
+	{
+		perror("recv call");
+		exit(-1);
+	}
+
+	if (messageLen > 0)
+	{
+		printf("Message received, length: %d Data: %s\n", messageLen, dataBuffer);
+	}
+	else
+	{
+		printf("Connection closed by other side\n");
+	}
+}
+
+void awaitServerConnect(int socket) {
+	uint8_t dataBuffer[MAXBUF];
+	int messageLen = 0;
+	
+	// now get the data from the client_socket
+	if ((messageLen = recvPDU(socket, dataBuffer, MAXBUF)) < 0)
+	{
+		perror("recv call");
+		exit(-1);
+	}
+	printf("received PDU\n");
+	if (messageLen > 0)
+	{
+		if(dataBuffer[0] == CONNECT_CONFIRM) {
+			return;
+		}
+		if(dataBuffer[0] == CONNECT_DENY) {
+			printf("%s\n", &dataBuffer[1]);
+			exit(-1);
+		}
+	}
+}
+
+int buildConnect(uint8_t* sendBuf) {
+
+	// build pdu based on flag
+	uint8_t tempBuf[MAXBUF];
+	tempBuf[0] = (uint8_t)CONNECT;
+
+	// sender handle length
+	tempBuf[1] = clientLength;
+	// sender handle
+	memcpy(&tempBuf[2], clientHandle, clientLength);
+	
+	memset(sendBuf, 0, MAXBUF);
+	memcpy(sendBuf, tempBuf, MAXBUF);
+	
+	// return PDU length
+	// flag + send name + send len
+	return 1 + clientLength + 1;
+}
+
+int buildUnicast(uint8_t* sendBuf, int sendLen) {
+
+	// build pdu based on flag
+	uint8_t tempBuf[MAXBUF];
+	tempBuf[0] = (uint8_t)UNICAST;
+
+	char s[MAXBUF];
+	strcpy(s, (char*)sendBuf);
+	// tokenize to extract destination handle
+	char* token = strtok(s, " ");
+	token = strtok(NULL, " ");
+	uint8_t tokenLength = strlen(token); 
+	if(token == NULL) {
+		printf("Usage: %%M dest-handle message\n");
+		return -1;
+	}
+	// sender handle length
+	tempBuf[1] = clientLength;
+	// sender handle
+	memcpy(&tempBuf[2], clientHandle, clientLength);
+	// destination handle length
+	tempBuf[2 + clientLength] = tokenLength;
+	// destination handle
+	memcpy(&tempBuf[2 + clientLength + 1], token, tokenLength);
+	// # of destinations
+	tempBuf[2 + clientLength + 1 + tokenLength] = 1;
+	// message
+	memcpy(&tempBuf[2 + clientLength + 1 + tokenLength + 1], &sendBuf[2 + tokenLength + 2], sendLen);
+	
+	memset(sendBuf, 0, MAXBUF);
+	memcpy(sendBuf, tempBuf, MAXBUF);
+	
+	// return PDU length
+	// message length + sender name + dest name + (flag + send len + dest len + # of dest)
+	return sendLen + clientLength + tokenLength + 4;
+}
+
+// return valid flag number if found. Otherwise, return 0.
+uint8_t findSendFlag(uint8_t* sendBuf) {
+
+	uint8_t flagBuf[4];
+	memcpy(&flagBuf[0], sendBuf, 3);
+	flagBuf[3] = '\0';
+
+	if(!strcmp((char*)flagBuf, "%M ") || !strcmp((char*)flagBuf, "%m "))
+		return UNICAST;
+	else if(!strcmp((char*)flagBuf, "%C ") || !strcmp((char*)flagBuf, "%c "))
+		return MULTICAST;
+	else if(!strcmp((char*)flagBuf, "%B ") || !strcmp((char*)flagBuf, "%b "))
+		return BROADCAST;
+	else if(!strcmp((char*)flagBuf, "%L ") || !strcmp((char*)flagBuf, "%l "))
+		return LIST_REQUEST;
+	else 
+		return 0;
 }

@@ -15,9 +15,7 @@ int sendPDU(int clientSocket, uint8_t* dataBuffer, int lengthOfData){
     // get pdu length and insert into packet in network byte order
     // add 2 to include length of pduLength field
     uint16_t pduLength = (uint16_t)lengthOfData + 2;
-    printf("send pdu length (host): %d\n", pduLength);
     pduLength = htons(pduLength);
-    printf("send pdu length (netw): %d\n", pduLength);
     memcpy(&pduBuffer[0], &pduLength, 2);
     memcpy(&pduBuffer[2], dataBuffer, lengthOfData);
 
@@ -45,9 +43,7 @@ int recvPDU(int socketNumber, uint8_t* dataBuffer, int bufferSize){
     uint16_t pduLength;
     memcpy(&pduLength, &pduLengthBuffer[0], 2);
     // remove pduLength field size
-    printf("recv pdu length (netw): %hu\n", pduLength);
     pduLength = ntohs(pduLength) - 2;
-    printf("recv pdu length (host): %hu\n", (uint16_t)(pduLength + 2));
 
     
 
