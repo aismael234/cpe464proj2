@@ -20,6 +20,7 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <stdint.h>
+#include <ctype.h>
 
 #include "networks.h"
 #include "pdu.h"
@@ -30,6 +31,7 @@
 #define DEBUG_FLAG 1
 
 int readFromStdin(uint8_t * buffer);
+int setup(int argc, char* argv[]);
 void checkArgs(int argc, char * argv[]);
 
 void clientControl(int clientSocket);
@@ -47,18 +49,41 @@ uint8_t findSendFlag(uint8_t* sendBuf);
 char clientHandle[MAXBUF];
 uint8_t clientLength;
 
-int main(int argc, char * argv[])
+int main(int argc, char* argv[])
 { 
 	//socket descriptor
-	int clientSocket = 0;        
+	// setup client connection
+	int clientSocket = setup(argc, argv);        
+
+	clientControl(clientSocket);
+
+	close(clientSocket);
+	return 0;
+}
+
+int setup(int argc, char* argv[]) {
 	checkArgs(argc, argv);
 
 	// client handle and length
 	strcpy(clientHandle, argv[1]);
 	clientLength = strlen(clientHandle);
+	if(clientLength <= 0 || clientLength > 100) {
+		printf("usage: %s handle(1-100 characters) host-name port-number \n", argv[0]);
+		exit(-1);
+	}
+	if(!isalpha(clientHandle[0])) {
+		printf("Handle must start with a letter and contain only alphanumeric characters (a-z, A-Z, 0-9).\n");
+	}
+	int i;
+	for(i = 0; i < clientLength; i++) {
+		if(!isalnum(clientHandle[i])) {
+			printf("Handle must start with a letter and contain only alphanumeric characters (a-z, A-Z, 0-9).\n");
+			exit(-1);
+		}
+	}
 
 	/* set up the TCP Client socket  */
-	clientSocket = tcpClientSetup(argv[2], argv[3], DEBUG_FLAG);
+	int clientSocket = tcpClientSetup(argv[2], argv[3], DEBUG_FLAG);
 
 	// send connection initialization PDU
 	uint8_t sendBuf[MAXBUF];
@@ -66,11 +91,7 @@ int main(int argc, char * argv[])
 	sendPDU(clientSocket, sendBuf, sendLen);
 	// wait for server connect reply
 	awaitServerConnect(clientSocket);
-
-	clientControl(clientSocket);
-
-	close(clientSocket);
-	return 0;
+	return clientSocket;
 }
 
 void clientControl(int clientSocket) {
@@ -155,7 +176,7 @@ void checkArgs(int argc, char * argv[])
 	/* check command line arguments  */
 	if (argc != 4)
 	{
-		printf("usage: %s handle host-name port-number \n", argv[0]);
+		printf("usage: %s handle(1-100 characters, start w/ letter) host-name port-number \n", argv[0]);
 		exit(1);
 	}
 }
@@ -182,6 +203,7 @@ void recvFromServer(int socket) {
 	else
 	{
 		printf("Connection closed by other side\n");
+		exit(0);
 	}
 }
 
@@ -195,7 +217,7 @@ void awaitServerConnect(int socket) {
 		perror("recv call");
 		exit(-1);
 	}
-	printf("received PDU\n");
+
 	if (messageLen > 0)
 	{
 		if(dataBuffer[0] == CONNECT_CONFIRM) {

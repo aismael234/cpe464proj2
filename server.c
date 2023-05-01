@@ -25,6 +25,7 @@
 #include "pdu.h"
 #include "pollLib.h"
 #include "flags.h"
+#include "socketHandleList.h"
 
 #define MAXBUF 65536
 #define DEBUG_FLAG 1
@@ -36,7 +37,8 @@ void addNewSocket(int mainSocket);
 void processClient(int clientSocket);
 void sendToClient(int socketNum, uint8_t* sendBuf, int sendLen);
 
-int handleConnect(uint8_t* dataBuffer);
+int handleConnect(uint8_t* dataBuffer, int clientSocket);
+//int handleUnicastOrMulticast(uint8_t dataBuffer);
 
 // remove
 int readFromStdin(uint8_t * buffer);
@@ -89,11 +91,17 @@ void processClient(int clientSocket) {
 
 	uint8_t dataBuffer[MAXBUF];
 	recvFromClient(clientSocket, dataBuffer);
-	//printf("Message received, length: %d Data: %s\n", messageLen, dataBuffer);
+	printf("Message received, Data: %s\n", dataBuffer);
 		if(dataBuffer[0] == CONNECT) {
-			int sendLen = handleConnect(dataBuffer);
+
+			int sendLen = handleConnect(dataBuffer, clientSocket);
 			sendToClient(clientSocket, dataBuffer, sendLen);
 		}
+		// else if(dataBuffer[0] == UNICAST || dataBuffer[0] == MULTICAST) {
+		//  // CREATE 2D CHAR* ARRAY HERE array[9][MAXBUF]
+		// 	int sendLen = handleUnicastOrMulticast(dataBuffer);
+		// 	sendToClient(clientSocket, dataBuffer, sendLen);
+		// }
 
 }
 
@@ -111,6 +119,8 @@ void recvFromClient(int clientSocket, uint8_t* dataBuf) {
 	if (messageLen <= 0)
 	{
 		printf("Connection closed by other side\n");
+		deleteNode(clientSocket);
+		removeFromPollSet(clientSocket);
 	}
 }
 
@@ -128,20 +138,15 @@ void sendToClient(int socketNum, uint8_t* sendBuf, int sendLen)
 }
 
 // if new client sends connection PDU. returns PDU length
-int handleConnect(uint8_t* dataBuffer) {
+int handleConnect(uint8_t* dataBuffer, int clientSocket) {
 
 	uint8_t clientHandle[MAXBUF];
 	int handleLength = dataBuffer[1];
 	// get handle name
 	memcpy(clientHandle, &dataBuffer[2], handleLength);
-
-	// check handle constraints
-	//
-
-	// check handle socket data structure for handle
-	char *check = "aladdin";
-	// handle not found/already found
-	if(!strncmp((char*)clientHandle, check, handleLength)) {
+	
+	// handle already exists/ doesn't fulfill requirements
+	if(findNode((char*)clientHandle) != NULL) {
 
 		memset(dataBuffer, 0, MAXBUF);
 		dataBuffer[0] = CONNECT_DENY;
@@ -158,12 +163,22 @@ int handleConnect(uint8_t* dataBuffer) {
 	// handle is valid
 	else {
 		printf("Handle is valid\n");
+		addNode(clientSocket, (char*)&dataBuffer[2]);
+		printf("Handle: %s\n", (char*)&dataBuffer[2]);
 		memset(dataBuffer, 0, MAXBUF);
+
 		dataBuffer[0] = CONNECT_CONFIRM;
 		return 1;
 	}
 
 }
+
+// int handleUnicastOrMulticast(uint8_t dataBuffer) {
+// 	// make an array of char* objects (2D array, array[9][MAXBUF]) in the function that calls this function?
+// 	// add it as a parameter to be filled with the list of dest handles
+// 	// add the # of dest handles as a parameter, use that for number of loops.
+// 	// in each loop, send packet to corresponding dest handle indexed in the 2D array
+// }
 
 
 // remove
