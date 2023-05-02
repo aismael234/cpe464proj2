@@ -139,12 +139,14 @@ void sendToServer(int socketNum)
 		sendLen = buildUnicast(sendBuf, sendLen);
 		if(sendLen < 0) {
 			printf("Usage: %%M dest-handle [message]\n");
+			return;
 		}
 	}
 	if(flag == MULTICAST) {
 		sendLen = buildMulticast(sendBuf, sendLen);
 		if(sendLen < 0) {
 			printf("Usage: %%C num-handles(2-9) dest-handle dest-handle [dest-handle]... [message]\n");
+			return;
 		}
 	}
 
@@ -335,11 +337,11 @@ int buildMulticast(uint8_t* sendBuf, int sendLen) {
 	char* numHandles = token;
 	// validate num-handles (must be 2-9)
 	if(!isNumber(numHandles) || strlen(numHandles) != 1) {
-		printf("fail 1\n");
+		//printf("fail 1\n");
 		return -1;
 	}
 	if(numHandles[0] < 2) {
-		printf("fail 2\n");
+		//printf("fail 2\n");
 		return -1;
 	}
 	// finally add num-handles
@@ -349,13 +351,10 @@ int buildMulticast(uint8_t* sendBuf, int sendLen) {
 	int i = 0;
 	int offset = 2 + clientLength + 1;
 	for(i = 0; i < atoi(numHandles); i++) {
-		printf("loop\n");
 		token = strtok(NULL, " ");
 		if(token == NULL) {
-		printf("fail 3\n");
 		return -1;
 		}
-		printf("target handle: %s\n", token);
 		uint8_t tokenLength = strlen(token); 
 
 		// destination handle length
@@ -365,6 +364,9 @@ int buildMulticast(uint8_t* sendBuf, int sendLen) {
 		memcpy(&tempBuf[offset], token, tokenLength);
 		offset += tokenLength;
 	}
+	// null terminator in case of empty message
+	int emptyMsgOffset = offset;
+	tempBuf[emptyMsgOffset] = '\0';
 	// add message
 	while((token = strtok(NULL, " ")) != NULL) {
 
@@ -374,7 +376,10 @@ int buildMulticast(uint8_t* sendBuf, int sendLen) {
 		tempBuf[offset] = ' ';
 		offset += 1;
 	}
-	tempBuf[offset - 1] = '\0';
+	// if not empty message
+	if(offset > emptyMsgOffset){
+		tempBuf[offset - 1] = '\0';
+	}
 	
 	memset(sendBuf, 0, MAXBUF);
 	memcpy(sendBuf, tempBuf, MAXBUF);
