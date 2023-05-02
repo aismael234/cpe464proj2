@@ -59,7 +59,6 @@ int main(int argc, char *argv[])
 	/* close the sockets */
 	close(mainServerSocket);
 
-	
 	return 0;
 }
 
@@ -72,7 +71,7 @@ void serverControl(int mainSocket) {
 	while(1) {
 
 		socket = pollCall(-1);
-		printf("socket: %d\n", socket);
+		//printf("socket: %d\n", socket);
 		if(socket == mainSocket)
 			addNewSocket(socket);
 		else {
@@ -89,8 +88,11 @@ void addNewSocket(int mainSocket) {
 }
 
 void processClient(int clientSocket) {
-
+	// ISSUE SEEMS TO BE THAT SERVER KEEPS ORIGINAL BUFFER INTACT?
+	// MUST CLEAR WHICHEVER BUFFER IT IS THAT IS KEEPING OLD VALUES?
+	// AAAAAHHHHH
 	uint8_t dataBuffer[MAXBUF];
+	memset(dataBuffer, 0, MAXBUF);
 	recvFromClient(clientSocket, dataBuffer);
 	//printf("Message received, Data: %s\n", dataBuffer);
 		if(dataBuffer[0] == CONNECT) {
@@ -154,7 +156,7 @@ int handleConnect(uint8_t* dataBuffer, int clientSocket) {
 		dataBuffer[1] = '\0';
 
 		char errorMsg[MAXBUF];
-		printf("Handle is Not Valid.\n");
+		//printf("Handle is Not Valid.\n");
 		sprintf(errorMsg, "Handle already in use: %s", clientHandle);
 		memcpy((char*)&dataBuffer[1], errorMsg, strlen(errorMsg) + 1);
 		printf("error: %s\nlength: %zu\n", errorMsg, strlen(errorMsg) + 1);
@@ -163,9 +165,9 @@ int handleConnect(uint8_t* dataBuffer, int clientSocket) {
 	}
 	// handle is valid
 	else {
-		printf("Handle is valid\n");
+		//printf("Handle is valid\n");
 		addNode(clientSocket, (char*)&dataBuffer[2]);
-		printf("Handle: %s\n", (char*)&dataBuffer[2]);
+		//printf("Handle: %s\n", (char*)&dataBuffer[2]);
 		memset(dataBuffer, 0, MAXBUF);
 
 		dataBuffer[0] = CONNECT_CONFIRM;
@@ -178,20 +180,20 @@ int handleConnect(uint8_t* dataBuffer, int clientSocket) {
  void handleUnicastOrMulticast(uint8_t* dataBuffer, int senderSocket) {
 
 	// offset for # of dest handles = flag + sendLen + sendHandle
-	char handleBuffer[MAXBUF];
+	char handleBuffer[MAX_HANDLE_LENGTH];
+	memset(handleBuffer, 0, MAX_HANDLE_LENGTH);
 	uint8_t numHandles = dataBuffer[1 + 1 + dataBuffer[1]];
 	//printf("sender length: %hu\n", dataBuffer[0]);
 	//printf("number of handles: %hu\n", numHandles);
 	int i = 0;
 	// offset for beginning of destination handles (starts at dest len)
 	int offset = 1 + 1 + dataBuffer[1] + 1;
-
 	// traverse through PDU and handle each dest handle accordingly
 	for(i = 0; i < numHandles; i++) {
 		int handleLength = dataBuffer[offset];
 		offset += 1;
 		memcpy(handleBuffer, &dataBuffer[offset], handleLength);
-		//printf("Target handle: %s\n", handleBuffer);
+		printf("Target handle: %s\n", handleBuffer);
 		node* dest = NULL;
 		// if dest handle not found, send sender handle an error PDU
 		if((dest = findNode(handleBuffer)) == NULL) {
@@ -210,12 +212,13 @@ int handleConnect(uint8_t* dataBuffer, int clientSocket) {
 			memcpy((char*)&errorPDU[1 + 1 + strlen(handleBuffer)], errorMsg, strlen(errorMsg) + 1);
 			// size = flag + error message len + null terminator
 			sendToClient(senderSocket, errorPDU, 1 + strlen(errorMsg) + 1);
+
 		}
 		// if found, send PDU to dest handle
 		else {
 			sendToClient(dest->socket, dataBuffer, strlen((char*)dataBuffer));
 		}
-
+		memset(handleBuffer, 0, MAX_HANDLE_LENGTH);
 		offset += handleLength;
 	}
 }

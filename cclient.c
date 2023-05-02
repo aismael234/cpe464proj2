@@ -54,8 +54,8 @@ uint8_t clientLength;
 
 int main(int argc, char* argv[])
 { 
-	//socket descriptor
 	// setup client connection
+	// socket descriptor
 	int clientSocket = setup(argc, argv);        
 
 	clientControl(clientSocket);
@@ -120,6 +120,7 @@ void clientControl(int clientSocket) {
 void sendToServer(int socketNum)
 {
 	uint8_t sendBuf[MAXBUF];   //data buffer
+	memset(sendBuf, 0, MAXBUF);
 	int sendLen = 0;        //amount of data to send
 	int sent = 0;            //actual amount of data sent/* get the data and send it   */
 	
@@ -193,7 +194,7 @@ void processMsgFromServer(int socket) {
 void recvFromServer(int socket) {
 	uint8_t dataBuffer[MAXBUF];
 	int messageLen = 0;
-	
+	memset(dataBuffer, 0, MAXBUF);
 	// now get the data from the client_socket
 	if ((messageLen = recvPDU(socket, dataBuffer, MAXBUF)) < 0)
 	{
@@ -204,19 +205,19 @@ void recvFromServer(int socket) {
 	if (messageLen > 0)
 	{
 		//printf("data received: %d\n", messageLen);
-		if(dataBuffer[0] == UNICAST) {
+		if(dataBuffer[0] == UNICAST || dataBuffer[0] == MULTICAST) {
 			handleUnicastOrMulticast(dataBuffer, messageLen);
 		}
 		if(dataBuffer[0] == HANDLE_ERROR) {
 			int handleLength = dataBuffer[1];
-			char* handleBuffer[MAX_HANDLE_LENGTH];
+			char handleBuffer[MAX_HANDLE_LENGTH];
 			memcpy(handleBuffer, (char*)&dataBuffer[2], handleLength);
 			printf("Client with handle %s does not exist.\n", handleBuffer);
 		}
 	}
 	else
 	{
-		printf("Connection closed by other side\n");
+		printf("Server Terminated\n");
 		exit(0);
 	}
 }
@@ -224,6 +225,7 @@ void recvFromServer(int socket) {
 void awaitServerConnect(int socket) {
 	uint8_t dataBuffer[MAXBUF];
 	int messageLen = 0;
+	memset(dataBuffer, 0, MAXBUF);
 	
 	// now get the data from the client_socket
 	if ((messageLen = recvPDU(socket, dataBuffer, MAXBUF)) < 0)
@@ -248,6 +250,7 @@ int buildConnect(uint8_t* sendBuf) {
 
 	// build pdu based on flag
 	uint8_t tempBuf[MAXBUF];
+	memset(tempBuf, 0, MAXBUF);
 	tempBuf[0] = (uint8_t)CONNECT;
 
 	// sender handle length
@@ -267,6 +270,7 @@ int buildUnicast(uint8_t* sendBuf, int sendLen) {
 
 	// build pdu based on flag
 	uint8_t tempBuf[MAXBUF];
+	memset(tempBuf, 0, MAXBUF);
 	tempBuf[0] = (uint8_t)UNICAST;
 
 	char s[MAXBUF];
@@ -303,6 +307,7 @@ int buildUnicast(uint8_t* sendBuf, int sendLen) {
 
 void handleUnicastOrMulticast(uint8_t* dataBuffer,int messageLen) {
 	char msg[MAXBUF];
+	memset(msg, 0, MAXBUF);
 
 	uint8_t senderLength = dataBuffer[1];
 	memcpy(msg, &dataBuffer[2], senderLength);
@@ -322,7 +327,7 @@ void handleUnicastOrMulticast(uint8_t* dataBuffer,int messageLen) {
 	msg[senderLength + 1] = ' ';
 	//printf("sender handle length: %d, offset: %d, message length: %d\n", senderLength, offset, messageLen);
 	memcpy(&msg[senderLength + 2], &dataBuffer[offset], messageLen - offset);
-	printf("%s\n", msg);
+	printf("%s\n", dataBuffer);
 	
 }
 
