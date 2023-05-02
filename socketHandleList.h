@@ -1,4 +1,4 @@
-#define MAX_HANDLE_LENGTH 100
+#include "util.h"
 
 struct node {
    int socket;

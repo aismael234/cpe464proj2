@@ -1,0 +1,1 @@
+#define MAX_HANDLE_LENGTH 101

@@ -26,6 +26,7 @@
 #include "pdu.h"
 #include "pollLib.h"
 #include "flags.h"
+#include "util.h"
 
 #define MAXBUF 1024
 #define DEBUG_FLAG 1
@@ -207,7 +208,10 @@ void recvFromServer(int socket) {
 			handleUnicastOrMulticast(dataBuffer, messageLen);
 		}
 		if(dataBuffer[0] == HANDLE_ERROR) {
-			printf("could not find handle\n");
+			int handleLength = dataBuffer[1];
+			char* handleBuffer[MAX_HANDLE_LENGTH];
+			memcpy(handleBuffer, (char*)&dataBuffer[2], handleLength);
+			printf("Client with handle %s does not exist.\n", handleBuffer);
 		}
 	}
 	else

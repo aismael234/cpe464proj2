@@ -26,6 +26,7 @@
 #include "pollLib.h"
 #include "flags.h"
 #include "socketHandleList.h"
+#include "util.h"
 
 #define MAXBUF 65536
 #define DEBUG_FLAG 1
@@ -196,14 +197,17 @@ int handleConnect(uint8_t* dataBuffer, int clientSocket) {
 		if((dest = findNode(handleBuffer)) == NULL) {
 			uint8_t errorPDU[MAXBUF];
 			memset(errorPDU, 0, MAXBUF);
+			// flag
 			errorPDU[0] = HANDLE_ERROR;
-			errorPDU[1] = '\0';
-
+			// dest handle length
+			errorPDU[1] = strlen(handleBuffer);
+			// dest handle
+			memcpy((char*)&errorPDU[2], handleBuffer, strlen(handleBuffer));
+			// error message
 			char errorMsg[MAXBUF];
-			printf("Handle not found.\n");
 			sprintf(errorMsg, "Client with handle %s does not exist.", handleBuffer);
-			errorPDU[1 + strlen(errorMsg) + 1] = '\0';
-			memcpy((char*)&errorPDU[1], errorMsg, strlen(errorMsg) + 1);
+			errorMsg[strlen(errorMsg) + 1] = '\0';
+			memcpy((char*)&errorPDU[1 + 1 + strlen(handleBuffer)], errorMsg, strlen(errorMsg) + 1);
 			// size = flag + error message len + null terminator
 			sendToClient(senderSocket, errorPDU, 1 + strlen(errorMsg) + 1);
 		}
