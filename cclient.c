@@ -44,6 +44,8 @@ void awaitServerConnect(int socket);
 int buildConnect(uint8_t* sendBuf);
 int buildUnicast(uint8_t* sendBuf, int sendLen);
 
+void handleUnicastOrMulticast(uint8_t* dataBuffer,int messageLen);
+
 uint8_t findSendFlag(uint8_t* sendBuf);
 
 char clientHandle[MAXBUF];
@@ -107,8 +109,10 @@ void clientControl(int clientSocket) {
 		fd = pollCall(-1);
 		if(fd == STDIN_FILENO)
 			sendToServer(clientSocket);
-		else if(fd == clientSocket)
+		else if(fd == clientSocket) {
+			printf("\n");
 			processMsgFromServer(clientSocket);
+		}
 	}
 }
 
@@ -135,7 +139,7 @@ void sendToServer(int socketNum)
 
 	//printf("read: %s string len: %d (including null). flag: %d\n", sendBuf, sendLen, flag);
 	//printf("PDU sent: %s, length: %zu\n", sendBuf, strlen((char*)sendBuf));
-
+	//printf("sending data: %d\n", sendLen);
 	sent = sendPDU(socketNum, sendBuf, sendLen);
 	if (sent < 0)
 	{
@@ -143,7 +147,7 @@ void sendToServer(int socketNum)
 		exit(-1);
 	}
 
-	printf("Amount of data sent is: %d\n", sent);
+	// printf("Amount of data sent is: %d\n", sent);
 }
 
 int readFromStdin(uint8_t * buffer)
@@ -189,7 +193,7 @@ void recvFromServer(int socket) {
 	uint8_t dataBuffer[MAXBUF];
 	int messageLen = 0;
 	
-	//now get the data from the client_socket
+	// now get the data from the client_socket
 	if ((messageLen = recvPDU(socket, dataBuffer, MAXBUF)) < 0)
 	{
 		perror("recv call");
@@ -198,7 +202,13 @@ void recvFromServer(int socket) {
 
 	if (messageLen > 0)
 	{
-		printf("Message received, length: %d Data: %s\n", messageLen, dataBuffer);
+		//printf("data received: %d\n", messageLen);
+		if(dataBuffer[0] == UNICAST) {
+			handleUnicastOrMulticast(dataBuffer, messageLen);
+		}
+		if(dataBuffer[0] == HANDLE_ERROR) {
+			printf("could not find handle\n");
+		}
 	}
 	else
 	{
@@ -269,21 +279,47 @@ int buildUnicast(uint8_t* sendBuf, int sendLen) {
 	tempBuf[1] = clientLength;
 	// sender handle
 	memcpy(&tempBuf[2], clientHandle, clientLength);
-	// destination handle length
-	tempBuf[2 + clientLength] = tokenLength;
-	// destination handle
-	memcpy(&tempBuf[2 + clientLength + 1], token, tokenLength);
 	// # of destinations
-	tempBuf[2 + clientLength + 1 + tokenLength] = 1;
+	tempBuf[2 + clientLength] = 1;
+	// destination handle length
+	tempBuf[2 + clientLength + 1] = tokenLength;
+	// destination handle
+	memcpy(&tempBuf[2 + clientLength + 1 + 1], token, tokenLength);
 	// message
-	memcpy(&tempBuf[2 + clientLength + 1 + tokenLength + 1], &sendBuf[2 + tokenLength + 2], sendLen);
+	memcpy(&tempBuf[2 + clientLength + 1 + 1 + tokenLength], &sendBuf[3 + tokenLength + 1], sendLen);
 	
 	memset(sendBuf, 0, MAXBUF);
 	memcpy(sendBuf, tempBuf, MAXBUF);
-	
+	// correct message length(subtract "%M [handle] " portion)
+	sendLen -= (3 + tokenLength + 1);
 	// return PDU length
 	// message length + sender name + dest name + (flag + send len + dest len + # of dest)
 	return sendLen + clientLength + tokenLength + 4;
+}
+
+void handleUnicastOrMulticast(uint8_t* dataBuffer,int messageLen) {
+	char msg[MAXBUF];
+
+	uint8_t senderLength = dataBuffer[1];
+	memcpy(msg, &dataBuffer[2], senderLength);
+	// # of destinations
+	int numHandles = dataBuffer[2 + senderLength];
+	//printf("number of handles: %d\n", numHandles);
+	int offset = 2 + senderLength + 1;
+	//printf("offset: %d\n", offset);
+	int i;
+	// skip through all handles until you reach data
+	for(i = 0; i < numHandles; i++) {
+		offset += dataBuffer[offset] + 1;
+		//printf("new offset: %d\n", offset);
+	}
+	//printf("%s\n", &dataBuffer[offset]);
+	msg[senderLength] = ':';
+	msg[senderLength + 1] = ' ';
+	//printf("sender handle length: %d, offset: %d, message length: %d\n", senderLength, offset, messageLen);
+	memcpy(&msg[senderLength + 2], &dataBuffer[offset], messageLen - offset);
+	printf("%s\n", msg);
+	
 }
 
 // return valid flag number if found. Otherwise, return 0.

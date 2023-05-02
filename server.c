@@ -38,7 +38,7 @@ void processClient(int clientSocket);
 void sendToClient(int socketNum, uint8_t* sendBuf, int sendLen);
 
 int handleConnect(uint8_t* dataBuffer, int clientSocket);
-//int handleUnicastOrMulticast(uint8_t dataBuffer);
+void handleUnicastOrMulticast(uint8_t* dataBuffer, int senderSocket);
 
 // remove
 int readFromStdin(uint8_t * buffer);
@@ -91,17 +91,17 @@ void processClient(int clientSocket) {
 
 	uint8_t dataBuffer[MAXBUF];
 	recvFromClient(clientSocket, dataBuffer);
-	printf("Message received, Data: %s\n", dataBuffer);
+	//printf("Message received, Data: %s\n", dataBuffer);
 		if(dataBuffer[0] == CONNECT) {
 
 			int sendLen = handleConnect(dataBuffer, clientSocket);
 			sendToClient(clientSocket, dataBuffer, sendLen);
 		}
-		// else if(dataBuffer[0] == UNICAST || dataBuffer[0] == MULTICAST) {
-		//  // CREATE 2D CHAR* ARRAY HERE array[9][MAXBUF]
-		// 	int sendLen = handleUnicastOrMulticast(dataBuffer);
-		// 	sendToClient(clientSocket, dataBuffer, sendLen);
-		// }
+		else if(dataBuffer[0] == UNICAST || dataBuffer[0] == MULTICAST) {
+		 // CREATE 2D CHAR* ARRAY HERE array[9][MAXBUF]
+		 	
+			handleUnicastOrMulticast(dataBuffer, clientSocket);
+		}
 
 }
 
@@ -173,12 +173,48 @@ int handleConnect(uint8_t* dataBuffer, int clientSocket) {
 
 }
 
-// int handleUnicastOrMulticast(uint8_t dataBuffer) {
-// 	// make an array of char* objects (2D array, array[9][MAXBUF]) in the function that calls this function?
-// 	// add it as a parameter to be filled with the list of dest handles
-// 	// add the # of dest handles as a parameter, use that for number of loops.
-// 	// in each loop, send packet to corresponding dest handle indexed in the 2D array
-// }
+// processs unicast and multicast packets
+ void handleUnicastOrMulticast(uint8_t* dataBuffer, int senderSocket) {
+
+	// offset for # of dest handles = flag + sendLen + sendHandle
+	char handleBuffer[MAXBUF];
+	uint8_t numHandles = dataBuffer[1 + 1 + dataBuffer[1]];
+	//printf("sender length: %hu\n", dataBuffer[0]);
+	//printf("number of handles: %hu\n", numHandles);
+	int i = 0;
+	// offset for beginning of destination handles (starts at dest len)
+	int offset = 1 + 1 + dataBuffer[1] + 1;
+
+	// traverse through PDU and handle each dest handle accordingly
+	for(i = 0; i < numHandles; i++) {
+		int handleLength = dataBuffer[offset];
+		offset += 1;
+		memcpy(handleBuffer, &dataBuffer[offset], handleLength);
+		//printf("Target handle: %s\n", handleBuffer);
+		node* dest = NULL;
+		// if dest handle not found, send sender handle an error PDU
+		if((dest = findNode(handleBuffer)) == NULL) {
+			uint8_t errorPDU[MAXBUF];
+			memset(errorPDU, 0, MAXBUF);
+			errorPDU[0] = HANDLE_ERROR;
+			errorPDU[1] = '\0';
+
+			char errorMsg[MAXBUF];
+			printf("Handle not found.\n");
+			sprintf(errorMsg, "Client with handle %s does not exist.", handleBuffer);
+			errorPDU[1 + strlen(errorMsg) + 1] = '\0';
+			memcpy((char*)&errorPDU[1], errorMsg, strlen(errorMsg) + 1);
+			// size = flag + error message len + null terminator
+			sendToClient(senderSocket, errorPDU, 1 + strlen(errorMsg) + 1);
+		}
+		// if found, send PDU to dest handle
+		else {
+			sendToClient(dest->socket, dataBuffer, strlen((char*)dataBuffer));
+		}
+
+		offset += handleLength;
+	}
+}
 
 
 // remove

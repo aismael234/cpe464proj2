@@ -44,7 +44,7 @@ int recvPDU(int socketNumber, uint8_t* dataBuffer, int bufferSize){
     memcpy(&pduLength, &pduLengthBuffer[0], 2);
     // remove pduLength field size
     pduLength = ntohs(pduLength) - 2;
-
+    //printf("pdu size: %hu\n", pduLength);
     
 
     // confirm input buffer size is large enough
