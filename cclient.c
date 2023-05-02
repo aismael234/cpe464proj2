@@ -44,10 +44,17 @@ void awaitServerConnect(int socket);
 
 // build PDU depending on message type
 int buildConnect(uint8_t* sendBuf);
+int buildExit(uint8_t* sendBuf);
+int buildList(uint8_t* sendBuf);
 int buildUnicast(uint8_t* sendBuf, int sendLen);
+int buildBroadcast(uint8_t* sendBuf, int sendLen);
 int buildMulticast(uint8_t* sendBuf, int sendLen);
 
 void handleUnicastOrMulticast(uint8_t* dataBuffer,int messageLen);
+void handleBroadcast(uint8_t* dataBuffer,int messageLen);
+// CLIENT PROCESSING LIST
+// DONT POLL FOR STDIN WHILE RECEIVING FLAG = 12 PACKETS
+void handleList(uint8_t* dataBuffer,int messageLen);
 
 uint8_t findSendFlag(uint8_t* sendBuf);
 int isNumber(char* str);
@@ -131,7 +138,7 @@ void sendToServer(int socketNum)
 
 	uint8_t flag = findSendFlag(sendBuf);
 	if(flag == 0) {
-		printf("Valid flag not detected. Please start message with a valid flag (%%M,%%C,%%B,%%L).\n");
+		printf("Valid flag not detected. Please start message with a valid flag (%%M,%%C,%%B,%%L,%%E).\n");
 		return;
 	}
 
@@ -148,6 +155,16 @@ void sendToServer(int socketNum)
 			printf("Usage: %%C num-handles(2-9) dest-handle dest-handle [dest-handle]... [message]\n");
 			return;
 		}
+	}
+	if(flag == BROADCAST) {
+		sendLen = buildBroadcast(sendBuf, sendLen);
+		if(sendLen < 0) {
+			printf("Usage: %%B [message]\n");
+			return;
+		}
+	}
+	if(flag == EXIT) {
+		sendLen = buildExit(sendBuf);
 	}
 
 	//printf("read: %s string len: %d (including null). flag: %d\n", sendBuf, sendLen, flag);
@@ -215,7 +232,7 @@ void recvFromServer(int socket) {
 
 	if (messageLen > 0)
 	{
-		//printf("data received: %d\n", messageLen);
+		//printf("flag received: %s\n", dataBuffer;
 		if(dataBuffer[0] == UNICAST || dataBuffer[0] == MULTICAST) {
 			handleUnicastOrMulticast(dataBuffer, messageLen);
 		}
@@ -224,6 +241,9 @@ void recvFromServer(int socket) {
 			char handleBuffer[MAX_HANDLE_LENGTH];
 			memcpy(handleBuffer, (char*)&dataBuffer[2], handleLength);
 			printf("Client with handle %s does not exist.\n", handleBuffer);
+		}
+		if(dataBuffer[0] == EXIT_ACK) {
+		exit(0);
 		}
 	}
 	else
@@ -263,6 +283,46 @@ int buildConnect(uint8_t* sendBuf) {
 	uint8_t tempBuf[MAXBUF];
 	memset(tempBuf, 0, MAXBUF);
 	tempBuf[0] = (uint8_t)CONNECT;
+
+	// sender handle length
+	tempBuf[1] = clientLength;
+	// sender handle
+	memcpy(&tempBuf[2], clientHandle, clientLength);
+	
+	memset(sendBuf, 0, MAXBUF);
+	memcpy(sendBuf, tempBuf, MAXBUF);
+	
+	// return PDU length
+	// flag + send name + send len
+	return 1 + clientLength + 1;
+}
+
+int buildExit(uint8_t* sendBuf) {
+
+	// build pdu based on flag
+	uint8_t tempBuf[MAXBUF];
+	memset(tempBuf, 0, MAXBUF);
+	tempBuf[0] = (uint8_t)EXIT;
+
+	// sender handle length
+	tempBuf[1] = clientLength;
+	// sender handle
+	memcpy(&tempBuf[2], clientHandle, clientLength);
+	
+	memset(sendBuf, 0, MAXBUF);
+	memcpy(sendBuf, tempBuf, MAXBUF);
+	
+	// return PDU length
+	// flag + send name + send len
+	return 1 + clientLength + 1;
+}
+
+int buildList(uint8_t* sendBuf) {
+
+	// build pdu based on flag
+	uint8_t tempBuf[MAXBUF];
+	memset(tempBuf, 0, MAXBUF);
+	tempBuf[0] = (uint8_t)LIST_REQUEST;
 
 	// sender handle length
 	tempBuf[1] = clientLength;
@@ -388,6 +448,43 @@ int buildMulticast(uint8_t* sendBuf, int sendLen) {
 	return offset;
 }
 
+int buildBroadcast(uint8_t* sendBuf, int sendLen) {
+	// build pdu based on flag
+	uint8_t tempBuf[MAXBUF];
+	memset(tempBuf, 0, MAXBUF);
+	tempBuf[0] = (uint8_t)BROADCAST;
+
+	// sender handle length
+	tempBuf[1] = clientLength;
+	// sender handle
+	memcpy(&tempBuf[2], clientHandle, clientLength);
+
+	int offset = 2;
+	while(sendBuf[offset] == ' ')
+		offset += 1;
+
+	// message
+	memcpy((char*)&tempBuf[2 + clientLength], (char*)&sendBuf[offset], strlen((char*)&sendBuf[offset]));
+	
+	memset(sendBuf, 0, MAXBUF);
+	memcpy(sendBuf, tempBuf, MAXBUF);
+	// return PDU length
+	return 1 + 1 + clientLength + strlen((char*)&sendBuf[offset]);
+}
+
+void handleBroadcast(uint8_t* dataBuffer,int messageLen) {
+	char msg[MAXBUF];
+	memset(msg, 0, MAXBUF);
+	uint8_t senderLength = dataBuffer[1];
+	memcpy(msg, &dataBuffer[2], senderLength);
+
+	msg[senderLength] = ':';
+	msg[senderLength + 1] = ' ';
+	//printf("sender handle length: %d, offset: %d, message length: %d\n", senderLength, offset, messageLen);
+	memcpy(&msg[senderLength + 2], (char*)&dataBuffer[1 + 1 + senderLength], strlen((char*)&dataBuffer[1 + 1 + senderLength]));
+	printf("%s\n", msg);
+}
+
 void handleUnicastOrMulticast(uint8_t* dataBuffer,int messageLen) {
 	char msg[MAXBUF];
 	memset(msg, 0, MAXBUF);
@@ -417,18 +514,29 @@ void handleUnicastOrMulticast(uint8_t* dataBuffer,int messageLen) {
 // return valid flag number if found. Otherwise, return 0.
 uint8_t findSendFlag(uint8_t* sendBuf) {
 
-	uint8_t flagBuf[4];
-	memcpy(&flagBuf[0], sendBuf, 3);
-	flagBuf[3] = '\0';
+	// uint8_t flagBuf[4];
+	// memcpy(&flagBuf[0], sendBuf, 3);
+	// flagBuf[3] = '\0';
 
-	if(!strcmp((char*)flagBuf, "%M ") || !strcmp((char*)flagBuf, "%m "))
+	char s[MAXBUF];
+	strcpy(s, (char*)sendBuf);
+	// tokenize to extract destination handle
+	char* token = strtok(s, " ");
+	if(token == NULL) {
+		printf("Valid flag not detected. Please start message with a valid flag (%%M,%%C,%%B,%%L).\n");
+		return -1;
+	}
+
+	if(!strcmp(token, "%M") || !strcmp(token, "%m"))
 		return UNICAST;
-	else if(!strcmp((char*)flagBuf, "%C ") || !strcmp((char*)flagBuf, "%c "))
+	else if(!strcmp(token, "%C") || !strcmp(token, "%c"))
 		return MULTICAST;
-	else if(!strcmp((char*)flagBuf, "%B ") || !strcmp((char*)flagBuf, "%b "))
+	else if(!strcmp(token, "%B") || !strcmp(token, "%b"))
 		return BROADCAST;
-	else if(!strcmp((char*)flagBuf, "%L ") || !strcmp((char*)flagBuf, "%l "))
+	else if(!strcmp(token, "%L") || !strcmp(token, "%l"))
 		return LIST_REQUEST;
+	else if(!strcmp(token, "%E") || !strcmp(token, "%e"))
+		return EXIT;
 	else 
 		return 0;
 }

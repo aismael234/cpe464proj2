@@ -1,4 +1,4 @@
 Author: Aladdin Ismael
 Lab: noon
 
-Comments:
+Comments: Mostly everything working except Broadcast and List of Handles.

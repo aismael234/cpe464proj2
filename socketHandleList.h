@@ -9,3 +9,4 @@ struct node {
 void addNode(int socket, char* handle);
 void deleteNode(int clientSocket);
 node* findNode(char* handle);
+node* getAllNodes();

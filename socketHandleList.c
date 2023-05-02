@@ -46,7 +46,7 @@ void deleteNode(int clientSocket){
 // returns target node. If not found, return NULL
 node* findNode(char* handle){
 
-   struct node *temp = head;
+   node* temp = head;
    while(temp != NULL) {
       if (!strcmp(temp->handle, handle)) {
          return temp;
@@ -54,5 +54,29 @@ node* findNode(char* handle){
       temp = temp->next;
    }
    return NULL;
+}
+
+// returns copy of list of nodes
+// MAKE SURE TO FREE ALLOCATION AFTER USING
+node* getAllNodes() {
+    if(head == NULL)
+        return NULL;
+
+    node* newHead = (node*) malloc(sizeof(struct node));
+    newHead->socket = head->socket;
+    strcpy(newHead->handle, head->handle);
+    
+    node *temp = newHead;
+    node *tempCurrent = head;
+    tempCurrent = tempCurrent->next;
+    while(tempCurrent != NULL) {
+        temp->next = (node*) malloc(sizeof(struct node));
+        temp=temp->next;
+        temp->socket = tempCurrent->socket;
+        strcpy(temp->handle, tempCurrent->handle);
+        tempCurrent = tempCurrent->next;
+    }
+    temp->next = NULL;
+    return newHead;
 }
 
