@@ -42,12 +42,15 @@ void sendToServer(int socketNum);
 void recvFromServer(int socket);
 void awaitServerConnect(int socket);
 
+// build PDU depending on message type
 int buildConnect(uint8_t* sendBuf);
 int buildUnicast(uint8_t* sendBuf, int sendLen);
+int buildMulticast(uint8_t* sendBuf, int sendLen);
 
 void handleUnicastOrMulticast(uint8_t* dataBuffer,int messageLen);
 
 uint8_t findSendFlag(uint8_t* sendBuf);
+int isNumber(char* str);
 
 char clientHandle[MAXBUF];
 uint8_t clientLength;
@@ -135,7 +138,13 @@ void sendToServer(int socketNum)
 	if(flag == UNICAST) {
 		sendLen = buildUnicast(sendBuf, sendLen);
 		if(sendLen < 0) {
-			printf("Usage: %%M dest-handle message\n");
+			printf("Usage: %%M dest-handle [message]\n");
+		}
+	}
+	if(flag == MULTICAST) {
+		sendLen = buildMulticast(sendBuf, sendLen);
+		if(sendLen < 0) {
+			printf("Usage: %%C num-handles(2-9) dest-handle dest-handle [dest-handle]... [message]\n");
 		}
 	}
 
@@ -305,6 +314,75 @@ int buildUnicast(uint8_t* sendBuf, int sendLen) {
 	return sendLen + clientLength + tokenLength + 4;
 }
 
+int buildMulticast(uint8_t* sendBuf, int sendLen) {
+	// build pdu based on flag
+	uint8_t tempBuf[MAXBUF];
+	memset(tempBuf, 0, MAXBUF);
+	tempBuf[0] = (uint8_t)MULTICAST;
+
+	// sender handle length
+	tempBuf[1] = clientLength;
+	// sender handle
+	memcpy(&tempBuf[2], clientHandle, clientLength);
+
+	// get all dest handles
+	char s[MAXBUF];
+	strcpy(s, (char*)sendBuf);
+	// tokenize to extract destination handle
+	char* token = strtok(s, " ");
+	token = strtok(NULL, " ");
+	// num-handles
+	char* numHandles = token;
+	// validate num-handles (must be 2-9)
+	if(!isNumber(numHandles) || strlen(numHandles) != 1) {
+		printf("fail 1\n");
+		return -1;
+	}
+	if(numHandles[0] < 2) {
+		printf("fail 2\n");
+		return -1;
+	}
+	// finally add num-handles
+	tempBuf[2 + clientLength] = (uint8_t)atoi(numHandles);
+	
+	// add all destinations
+	int i = 0;
+	int offset = 2 + clientLength + 1;
+	for(i = 0; i < atoi(numHandles); i++) {
+		printf("loop\n");
+		token = strtok(NULL, " ");
+		if(token == NULL) {
+		printf("fail 3\n");
+		return -1;
+		}
+		printf("target handle: %s\n", token);
+		uint8_t tokenLength = strlen(token); 
+
+		// destination handle length
+		tempBuf[offset] = tokenLength;
+		offset += 1;
+		// destination handle
+		memcpy(&tempBuf[offset], token, tokenLength);
+		offset += tokenLength;
+	}
+	// add message
+	while((token = strtok(NULL, " ")) != NULL) {
+
+		uint8_t tokenLength = strlen(token);
+		memcpy(&tempBuf[offset], token, tokenLength);
+		offset += tokenLength;
+		tempBuf[offset] = ' ';
+		offset += 1;
+	}
+	tempBuf[offset - 1] = '\0';
+	
+	memset(sendBuf, 0, MAXBUF);
+	memcpy(sendBuf, tempBuf, MAXBUF);
+
+	// return PDU length
+	return offset;
+}
+
 void handleUnicastOrMulticast(uint8_t* dataBuffer,int messageLen) {
 	char msg[MAXBUF];
 	memset(msg, 0, MAXBUF);
@@ -327,7 +405,7 @@ void handleUnicastOrMulticast(uint8_t* dataBuffer,int messageLen) {
 	msg[senderLength + 1] = ' ';
 	//printf("sender handle length: %d, offset: %d, message length: %d\n", senderLength, offset, messageLen);
 	memcpy(&msg[senderLength + 2], &dataBuffer[offset], messageLen - offset);
-	printf("%s\n", dataBuffer);
+	printf("%s\n", msg);
 	
 }
 
@@ -348,4 +426,14 @@ uint8_t findSendFlag(uint8_t* sendBuf) {
 		return LIST_REQUEST;
 	else 
 		return 0;
+}
+
+int isNumber(char* str){
+	int i;
+    for (i = 0; str[i]!= '\0'; i++)
+    {
+        if (isdigit(str[i]) == 0)
+              return 0;
+    }
+    return 1;
 }

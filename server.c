@@ -88,9 +88,6 @@ void addNewSocket(int mainSocket) {
 }
 
 void processClient(int clientSocket) {
-	// ISSUE SEEMS TO BE THAT SERVER KEEPS ORIGINAL BUFFER INTACT?
-	// MUST CLEAR WHICHEVER BUFFER IT IS THAT IS KEEPING OLD VALUES?
-	// AAAAAHHHHH
 	uint8_t dataBuffer[MAXBUF];
 	memset(dataBuffer, 0, MAXBUF);
 	recvFromClient(clientSocket, dataBuffer);
@@ -101,8 +98,7 @@ void processClient(int clientSocket) {
 			sendToClient(clientSocket, dataBuffer, sendLen);
 		}
 		else if(dataBuffer[0] == UNICAST || dataBuffer[0] == MULTICAST) {
-		 // CREATE 2D CHAR* ARRAY HERE array[9][MAXBUF]
-		 	
+				 	
 			handleUnicastOrMulticast(dataBuffer, clientSocket);
 		}
 
@@ -184,7 +180,7 @@ int handleConnect(uint8_t* dataBuffer, int clientSocket) {
 	memset(handleBuffer, 0, MAX_HANDLE_LENGTH);
 	uint8_t numHandles = dataBuffer[1 + 1 + dataBuffer[1]];
 	//printf("sender length: %hu\n", dataBuffer[0]);
-	//printf("number of handles: %hu\n", numHandles);
+	printf("number of handles: %hu\n", numHandles);
 	int i = 0;
 	// offset for beginning of destination handles (starts at dest len)
 	int offset = 1 + 1 + dataBuffer[1] + 1;
