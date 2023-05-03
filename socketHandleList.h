@@ -8,5 +8,6 @@ struct node {
 
 void addNode(int socket, char* handle);
 void deleteNode(int clientSocket);
-node* findNode(char* handle);
+node* findNodeByHandle(char* handle);
+node* findNodeBySocket(int socket);
 node* getAllNodes();

@@ -29,6 +29,7 @@
 #include "util.h"
 
 #define MAXBUF 1024
+#define PRODUCTION_FLAG 0
 #define DEBUG_FLAG 1
 
 int readFromStdin(uint8_t * buffer);
@@ -52,9 +53,7 @@ int buildMulticast(uint8_t* sendBuf, int sendLen);
 
 void handleUnicastOrMulticast(uint8_t* dataBuffer,int messageLen);
 void handleBroadcast(uint8_t* dataBuffer,int messageLen);
-// CLIENT PROCESSING LIST
-// DONT POLL FOR STDIN WHILE RECEIVING FLAG = 12 PACKETS
-void handleList(uint8_t* dataBuffer,int messageLen);
+void handleList(uint8_t* dataBuffer,int messageLen, int serverSocket);
 
 uint8_t findSendFlag(uint8_t* sendBuf);
 int isNumber(char* str);
@@ -81,22 +80,40 @@ int setup(int argc, char* argv[]) {
 	strcpy(clientHandle, argv[1]);
 	clientLength = strlen(clientHandle);
 	if(clientLength <= 0 || clientLength > 100) {
-		printf("usage: %s handle(1-100 characters) host-name port-number \n", argv[0]);
+		fprintf(stderr, "usage: %s handle(1-100 characters) host-name port-number \n", argv[0]);
 		exit(-1);
 	}
 	if(!isalpha(clientHandle[0])) {
-		printf("Handle must start with a letter and contain only alphanumeric characters (a-z, A-Z, 0-9).\n");
+		fprintf(stderr, "Handle must start with a letter and contain only alphanumeric characters (a-z, A-Z, 0-9).\n");
 	}
 	int i;
 	for(i = 0; i < clientLength; i++) {
 		if(!isalnum(clientHandle[i])) {
-			printf("Handle must start with a letter and contain only alphanumeric characters (a-z, A-Z, 0-9).\n");
+			fprintf(stderr, "Handle must start with a letter and contain only alphanumeric characters (a-z, A-Z, 0-9).\n");
 			exit(-1);
 		}
 	}
 
+	// for(i = 1; i <= 100; i++) {
+	// 	int clientSocket = tcpClientSetup(argv[2], argv[3], PRODUCTION_FLAG);
+	// 	// build pdu based on flag
+	// 	uint8_t tempBuf[MAXBUF];
+	// 	memset(tempBuf, 0, MAXBUF);
+	// 	tempBuf[0] = (uint8_t)CONNECT;
+	// 	char tempHandle[MAX_HANDLE_LENGTH];
+	// 	memset(tempHandle, 0, MAX_HANDLE_LENGTH);
+	// 	sprintf(tempHandle, "tester%d", i);
+	// 	// sender handle length
+	// 	tempBuf[1] = strlen(tempHandle);
+	// 	// sender handle
+	// 	memcpy(&tempBuf[2], tempHandle, strlen(tempHandle));
+	// 	printf("new handle: %s\n", &tempBuf[2]);
+		
+	// 	sendPDU(clientSocket, tempBuf, 1 + strlen((char*)tempBuf) + 1);
+	// }
+
 	/* set up the TCP Client socket  */
-	int clientSocket = tcpClientSetup(argv[2], argv[3], DEBUG_FLAG);
+	int clientSocket = tcpClientSetup(argv[2], argv[3], PRODUCTION_FLAG);
 
 	// send connection initialization PDU
 	uint8_t sendBuf[MAXBUF];
@@ -161,6 +178,12 @@ void sendToServer(int socketNum)
 		if(sendLen < 0) {
 			printf("Usage: %%B [message]\n");
 			return;
+		}
+	}
+	if(flag == LIST_REQUEST) {
+		sendLen = buildList(sendBuf);
+		if(sendLen < 0) {
+			printf("Usage: %%L\n");
 		}
 	}
 	if(flag == EXIT) {
@@ -236,6 +259,12 @@ void recvFromServer(int socket) {
 		if(dataBuffer[0] == UNICAST || dataBuffer[0] == MULTICAST) {
 			handleUnicastOrMulticast(dataBuffer, messageLen);
 		}
+		if(dataBuffer[0] == BROADCAST) {
+			handleBroadcast(dataBuffer, messageLen);
+		}
+		if(dataBuffer[0] == LIST_REPLY) {
+			handleList(dataBuffer, messageLen, socket);
+		}
 		if(dataBuffer[0] == HANDLE_ERROR) {
 			int handleLength = dataBuffer[1];
 			char handleBuffer[MAX_HANDLE_LENGTH];
@@ -266,7 +295,7 @@ void awaitServerConnect(int socket) {
 	}
 
 	if (messageLen > 0)
-	{
+	{ 
 		if(dataBuffer[0] == CONNECT_CONFIRM) {
 			return;
 		}
@@ -274,6 +303,11 @@ void awaitServerConnect(int socket) {
 			printf("%s\n", &dataBuffer[1]);
 			exit(-1);
 		}
+	}
+	else
+	{
+		printf("Server Terminated\n");
+		exit(0);
 	}
 }
 
@@ -296,6 +330,7 @@ int buildConnect(uint8_t* sendBuf) {
 	// flag + send name + send len
 	return 1 + clientLength + 1;
 }
+
 
 int buildExit(uint8_t* sendBuf) {
 
@@ -509,6 +544,51 @@ void handleUnicastOrMulticast(uint8_t* dataBuffer,int messageLen) {
 	memcpy(&msg[senderLength + 2], &dataBuffer[offset], messageLen - offset);
 	printf("%s\n", msg);
 	
+}
+
+void handleList(uint8_t* dataBuffer,int messageLen, int serverSocket) {
+	
+	// get total # of handles in list
+	int numHandles;
+	memcpy(&numHandles, (char*)&dataBuffer[1], 4);
+	// convert from network to host byte order
+	numHandles = ntohl(numHandles);
+	printf("Number of clients: %d\n", numHandles);
+
+	uint8_t messageBuffer[MAXBUF];
+	memset(messageBuffer, 0, MAXBUF);
+
+	while(messageBuffer[0] != LIST_END) {
+		
+		if ((messageLen = recvPDU(serverSocket, messageBuffer, MAXBUF)) < 0)
+		{
+			perror("recv call");
+			exit(-1);
+		}
+
+		if (messageLen > 0)
+		{ 
+			if(messageBuffer[0] != HANDLE && messageBuffer[0] != LIST_END) {
+				fprintf(stderr, "handleList(): wrong flag: %hu\n", messageBuffer[0]);
+				exit(-1);
+			}
+			else {
+
+				if(messageBuffer[0] == HANDLE) {
+					int handleLength = messageBuffer[1];
+					char handleBuffer[MAX_HANDLE_LENGTH + 1];
+					memcpy(&handleBuffer, (char*)&messageBuffer[2], handleLength);
+					handleBuffer[handleLength] = '\0';
+					printf("  %s\n", handleBuffer);
+				}
+			}
+		}
+		else
+		{
+			printf("Server Terminated\n");
+			exit(0);
+		}
+	}
 }
 
 // return valid flag number if found. Otherwise, return 0.

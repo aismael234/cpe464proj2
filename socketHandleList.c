@@ -12,6 +12,7 @@ void addNode(int socket, char* handle){
     node *new = (node*) malloc(sizeof(struct node));
     new->socket = socket;
     // copy handle in
+    memset(new->handle, 0, MAX_HANDLE_LENGTH);
     memcpy(new->handle, handle, strlen(handle));
     new->next = head;
 
@@ -44,11 +45,23 @@ void deleteNode(int clientSocket){
 }
 
 // returns target node. If not found, return NULL
-node* findNode(char* handle){
+node* findNodeByHandle(char* handle){
 
    node* temp = head;
    while(temp != NULL) {
       if (!strcmp(temp->handle, handle)) {
+         return temp;
+      }
+      temp = temp->next;
+   }
+   return NULL;
+}
+
+node* findNodeBySocket(int socket){
+
+   node* temp = head;
+   while(temp != NULL) {
+      if (temp->socket == socket) {
          return temp;
       }
       temp = temp->next;
